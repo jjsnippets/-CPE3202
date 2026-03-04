@@ -1,0 +1,5 @@
+*.exe
+.vscode
+*.txt
+*.pdf
+build*
