@@ -1,3 +1,8 @@
+// CPE 3202 COMPUTER ORGANIZATION AND ARCHITECTURE
+// Group 2      MW 7:30AM - 10:30AM LB CEAC2 TC
+// Estose, Jude Vicris; Sarcol, Joshua; Silmaro, Jame Paul Jr.      BS CpE - 3  2026/03/16
+// Laboratory Exercise #1: The ALU
+
 #include <stdio.h>
 
 // Opcodes
@@ -36,6 +41,7 @@ void main(){
     ALU(0x5A, 0x00, SHL);
 }
 
+// Main function of interest: ALU
 int ALU(unsigned char operand1, unsigned char operand2, unsigned char control_signals){
     
     // Temporary operand registers
@@ -155,6 +161,7 @@ int ALU(unsigned char operand1, unsigned char operand2, unsigned char control_si
     return 0;
 }
 
+// Helper functions
 unsigned char twosComp(unsigned char data){
     return ~data + 1;
 }
