@@ -12,13 +12,13 @@
 
 // Opcodes
 typedef enum inst_opcode {
-    WM  = 0b0001,       // Write to memory
-    RM  = 0b0010,       // Read from memory
-    BR  = 0b0011,       // Branch
+    WM  = 0b00001,      // Write to memory
+    RM  = 0b00010,      // Read from memory
+    BR  = 0b00011,      // Branch
     RIO = 0b00100,      // Read from IO buffer
     WIO = 0b00101,      // Write from IO buffer
     WB  = 0b00110,      // Write data to MBR
-    WIB = 0b0111,       // Write data to IOBR
+    WIB = 0b00111,      // Write data to IOBR
     EOP = 0b11111,      // End of program
 } INST_OPCODE;
 
