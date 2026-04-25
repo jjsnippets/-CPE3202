@@ -1,6 +1,6 @@
 // CPE 3202 COMPUTER ORGANIZATION AND ARCHITECTURE
 // Group 2      MW 7:30AM - 10:30AM LB CEAC2 TC
-// Estose, Jude Vicris; Sarcol, Joshua; Silmaro, Jame Paul Jr.      BS CpE - 3  2026/04/21
+// Estose, Jude Vicris; Sarcol, Joshua; Silmaro, Jame Paul Jr.      BS CpE - 3  2026/04/25
 // Laboratory Exercise #3 The Buses
 
 #include <stdlib.h>
@@ -81,15 +81,23 @@ int CU(void){
         ADDR = PC; MainMemory();        // Fetch upper byte
         if(FETCH == 1){
             IR = ((int) BUS) << 8;      // Load upper instruction byte
-            PC++; ADDR = PC;            // Point to lower byte
+            
+            INCREMENT = 1;              
+            if(INCREMENT == 1) PC++;    // Point to lower byte
+            ADDR = PC;
+            INCREMENT = 0;
         }
 
         // Lower byte
         MainMemory();
         if(FETCH == 1){
             IR = IR | BUS;              // Load lower instruction byte
-            PC++;                       // Point to next instruction
+
+            INCREMENT = 1;
+            if(INCREMENT == 1) PC++;    // Point to next instruction
+            INCREMENT = 0;
         }
+        FETCH = 0;
 
         // Decode and Execute
         uint8_t opcode = (IR >> 11) & 0x1F;     // Extract opcode (5 bits)
@@ -99,11 +107,11 @@ int CU(void){
             case WM:    // Write to memory (to what is already in MBR)
                 MAR = operand;                  // Set MAR to operand address
 
-                CONTROL = opcode;               // Control signals
+                CONTROL = opcode;               // Current instruction to be executed
                 IOM = 1; RW = 1; OE = 1;        // Memory write
                 FETCH = 0; MEMORY = 1; IO = 0;  // Accessing memory
 
-                ADDR = MAR;                     // Write MBR to memory
+                if(MEMORY == 1) ADDR = MAR;     // Write MBR to memory
                 if(MEMORY == 1) BUS = MBR;
                 MainMemory();                   // dataMemory[MAR] = MBR;
                 break;
@@ -111,55 +119,78 @@ int CU(void){
             case RM:    // Read from memory
                 MAR = operand;                  // Set MAR to operand address
 
-                CONTROL = opcode;               // Control signals
+                CONTROL = opcode;               // Current instruction to be executed
                 IOM = 1; RW = 0; OE = 1;        // Memory read
                 FETCH = 0; MEMORY = 1; IO = 0;  // Accessing memory
 
-                ADDR = MAR; MainMemory();       // Read memory to MBR
+                if(MEMORY == 1) ADDR = MAR;     // Read memory to MBR
+                MainMemory();
                 if(MEMORY == 1) MBR = BUS;      // MBR = dataMemory[MAR];
                 break;
 
             case BR:    // Branch to address
-                MAR = operand;          // Set MAR to operand address
-                PC = MAR;               // PC <- MAR
+                MAR = operand;                  // Set MAR to operand address
+
+                CONTROL = opcode;               // Current instruction to be executed
+                IOM = 0; RW = 0; OE = 0;        // Disable external bus acess
+                FETCH = 0; MEMORY = 0; IO = 0;
+
+                PC = MAR;                       // PC <- MAR
                 break;
             
             case RIO:   // Read from IO buffer
                 IOAR = operand;                 // Set IOAR to operand address
 
-                CONTROL = opcode;               // Control signals
+                CONTROL = opcode;               // Current instruction to be executed
                 IOM = 0; RW = 0; OE = 1;        // IO read
                 FETCH = 0; MEMORY = 0; IO = 1;  // Accessing IO
 
-                ADDR = IOAR; IOMemory();        // Read from IO buffer to IOBR
+                if(IO == 1) ADDR = IOAR;        // Read from IO buffer to IOBR
+                IOMemory();
                 if(IO == 1) IOBR = BUS;         // IOBR = IOBuffer[IOAR];
                 break;
 
             case WIO:   // Write to IO buffer (to what is already in IOBR)
                 IOAR = operand;                 // Set IOAR to operand address
 
-                CONTROL = opcode;               // Control signals
+                CONTROL = opcode;               // Current instruction to be executed
                 IOM = 0; RW = 1; OE = 1;        // IO write
                 FETCH = 0; MEMORY = 0; IO = 1;  // Accessing IO
 
-                ADDR = IOAR;                    // Write from IOBR to IO buffer
+                if(IO == 1) ADDR = IOAR;        // Write from IOBR to IO buffer
                 if(IO == 1) BUS = IOBR;
                 IOMemory();                     // IOBuffer[IOAR] = IOBR;
                 break;
 
             case WB:    // Write data to MBR
-                MBR = operand;          // Write operand to MBR
+                MBR = operand;                  // Write operand to MBR
+
+                CONTROL = opcode;               // Current instruction to be executed
+                IOM = 0; RW = 0; OE = 0;        // Disable external bus acess
+                FETCH = 0; MEMORY = 0; IO = 0;
                 break;
 
             case WIB:   // Write data to IOBR
-                IOBR = operand;         // Write operand to IOBR
+                IOBR = operand;                 // Write operand to IOBR
+
+                CONTROL = opcode;               // Current instruction to be executed
+                IOM = 0; RW = 0; OE = 0;        // Disable external bus acess
+                FETCH = 0; MEMORY = 0; IO = 0;
                 break;
 
             case EOP:   // End of program
+                CONTROL = opcode;               // Current instruction to be executed
+                IOM = 0; RW = 0; OE = 0;        // Disable buses before halting
+                FETCH = 0; MEMORY = 0; IO = 0;
+
                 run = 0;
                 break;
 
             default:    // Invalid opcode
+                CONTROL = opcode;               // Current instruction to be executed
+                IOM = 0; RW = 0; OE = 0;        // Disable buses on error
+                FETCH = 0; MEMORY = 0; IO = 0;
+
                 isError = 1;
                 run = 0;
                 break;
@@ -173,13 +204,13 @@ int CU(void){
             printf("Fetching instruction...\n");
             printf("%-20s: 0x%04X\n", "IR", IR);
             printf("%-20s: 0x%02X\n", "Instruction Code", opcode);
+            printf("%-20s: 0x%02X\n", "CONTROL", CONTROL);
             printf("%-20s: 0x%03X\n", "Operand", operand);
 
             switch (opcode) {
                 case WM:
                     printf("%-20s: %s\n", "Instruction", "WM");
                     printf("Executing Write to Memory\n");
-                    printf("%-20s: 0x%02X\n", "CONTROL", CONTROL);
                     printf("%-20s: 0x%03X\n", "MAR", MAR);
                     printf("%-20s: 0x%02X\n", "MBR", MBR);
                     printf("%-20s: 0x%02X\n", "Memory[MAR]", dataMemory[MAR]);
@@ -188,7 +219,6 @@ int CU(void){
                 case RM:
                     printf("%-20s: %s\n", "Instruction", "RM");
                     printf("Executing Read from Memory\n");
-                    printf("%-20s: 0x%02X\n", "CONTROL", CONTROL);
                     printf("%-20s: 0x%03X\n", "MAR", MAR);
                     printf("%-20s: 0x%02X\n", "MBR", MBR);
                     break;
@@ -202,7 +232,6 @@ int CU(void){
                 case RIO:
                     printf("%-20s: %s\n", "Instruction", "RIO");
                     printf("Executing Read from IO Buffer\n");
-                    printf("%-20s: 0x%02X\n", "CONTROL", CONTROL);
                     printf("%-20s: 0x%03X\n", "IOAR", IOAR);
                     printf("%-20s: 0x%02X\n", "IOBR", IOBR);
                     break;
@@ -210,7 +239,6 @@ int CU(void){
                 case WIO:
                     printf("%-20s: %s\n", "Instruction", "WIO");
                     printf("Executing Write to IO Buffer\n");
-                    printf("%-20s: 0x%02X\n", "CONTROL", CONTROL);
                     printf("%-20s: 0x%03X\n", "IOAR", IOAR);
                     printf("%-20s: 0x%02X\n", "IOBR", IOBR);
                     printf("%-20s: 0x%02X\n", "IOBuffer[IOAR]", IOBuffer[IOAR]);
