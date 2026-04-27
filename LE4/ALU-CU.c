@@ -71,13 +71,11 @@ void MainMemory(void);
 void IOMemory(void);
 void initMemory(void);
 
-unsigned char twosComp(unsigned char data);
-void setFlagsArithmetic(unsigned int result);
-void setFlagZeroOnly(unsigned char value);
-void setFlagCarryOnly(unsigned char carry);
+uint8_t twosComp(uint8_t data);
+void setFlags(uint16_t result);
 
 void loadWord(uint16_t addr, uint16_t word);
-const char *instructionName(uint8_t opcode);
+const uint8_t *instructionName(uint8_t opcode);
 
 int main(void) {
     initMemory();
@@ -491,61 +489,61 @@ int CU(void) {
 
 int ALU(void) {
     static int ACC = 0;
-    unsigned int temp_ACC = (unsigned char)ACC;
+    uint16_t temp_ACC = (uint8_t)ACC;
 
     #if PRINTCYCLE == 1
-        unsigned char acc_before = (unsigned char)ACC;
-        unsigned char bus_before = BUS;
+        uint8_t acc_before = (uint8_t)ACC;
+        uint8_t bus_before = BUS;
     #endif
 
     switch (CONTROL) {
         // Arithmetic and Logical Instructions
         case ADD:
-            temp_ACC = (unsigned char)ACC + BUS;
-            ACC = (unsigned char)temp_ACC;
-            setFlagsArithmetic(temp_ACC);
+            temp_ACC = (uint8_t)ACC + BUS;
+            ACC = (uint8_t)temp_ACC;
+            setFlags(temp_ACC);
             break;
 
         case SUB:
-            temp_ACC = (unsigned char)ACC + twosComp(BUS);
-            ACC = (unsigned char)temp_ACC;
-            setFlagsArithmetic(temp_ACC);
+            temp_ACC = (uint8_t)ACC + twosComp(BUS);
+            ACC = (uint8_t)temp_ACC;
+            setFlags(temp_ACC);
             break;
 
-        case MUL:   // Omitted Booth's algorithm for compaction
-            temp_ACC = (unsigned char)ACC * BUS;
-            ACC = (unsigned char)temp_ACC;
-            setFlagsArithmetic(temp_ACC);
+        case MUL:
+            temp_ACC = (uint8_t)ACC * BUS;
+            ACC = (uint8_t)temp_ACC;
+            setFlags(temp_ACC);
             break;
 
         case AND:
-            ACC = (unsigned char)ACC & BUS;
-            setFlagZeroOnly((unsigned char)ACC);
+            ACC = (uint8_t)ACC & BUS;
+            setFlags((uint8_t)ACC);
             break;
 
         case OR:
-            ACC = (unsigned char)ACC | BUS;
-            setFlagZeroOnly((unsigned char)ACC);
+            ACC = (uint8_t)ACC | BUS;
+            setFlags((uint8_t)ACC);
             break;
 
         case NOT:
-            ACC = (unsigned char)(~((unsigned char)ACC));
-            setFlagZeroOnly((unsigned char)ACC);
+            ACC = (uint8_t)(~((uint8_t)ACC));
+            setFlags((uint8_t)ACC);
             break;
 
         case XOR:
-            ACC = (unsigned char)ACC ^ BUS;
-            setFlagZeroOnly((unsigned char)ACC);
+            ACC = (uint8_t)ACC ^ BUS;
+            setFlags((uint8_t)ACC);
             break;
 
         case SHL:
-            setFlagCarryOnly((((unsigned char)ACC) & 0x80) ? 1 : 0);
-            ACC = ((unsigned char)ACC << 1) & 0xFF;
+            setFlags((((uint8_t)ACC) & 0x80) ? 1 : 0);
+            ACC = ((uint8_t)ACC << 1) & 0xFF;
             break;
 
         case SHR:
-            setFlagCarryOnly((((unsigned char)ACC) & 0x01) ? 1 : 0);
-            ACC = ((unsigned char)ACC >> 1) & 0xFF;
+            setFlags((((uint8_t)ACC) & 0x01) ? 1 : 0);
+            ACC = ((uint8_t)ACC >> 1) & 0xFF;
             break;
 
 
@@ -555,7 +553,7 @@ int ALU(void) {
             break;
 
         case RACC:
-            BUS = (unsigned char)ACC;
+            BUS = (uint8_t)ACC;
             break;
 
 
@@ -564,9 +562,9 @@ int ALU(void) {
         case BRNE:
         case BRGT:
         case BRLT:
-            temp_ACC = (unsigned char)ACC + twosComp(BUS);  // Perform subtraction
-            ACC = (unsigned char)temp_ACC;
-            setFlagsArithmetic(temp_ACC);
+            temp_ACC = (uint8_t)ACC + twosComp(BUS);    // Perform subtraction
+            ACC = (uint8_t)temp_ACC;
+            setFlags(temp_ACC);
             break;
 
         // Invalid opcode
@@ -576,7 +574,7 @@ int ALU(void) {
 
     #if PRINTCYCLE == 1
         printf("ALU Trace            : %-4s | ACC(before)=0x%02X | BUS=0x%02X | ACC(after)=0x%02X | FLAGS=0x%02X\n",
-            instructionName(CONTROL), acc_before, bus_before, (unsigned char)ACC, FLAGS);
+            instructionName(CONTROL), acc_before, bus_before, (uint8_t)ACC, FLAGS);
     #endif
 
     return 0;
@@ -610,41 +608,64 @@ void loadWord(uint16_t addr, uint16_t word) {
     }
 }
 
-unsigned char twosComp(unsigned char data) {
-    return (unsigned char)(~data + 1);
+uint8_t twosComp(uint8_t data) {
+    return (uint8_t)(~data + 1);
 }
 
-void setFlagsArithmetic(unsigned int result) {
-    FLAGS &= ~(FLAG_ZF | FLAG_CF | FLAG_SF | FLAG_OF);  // Bit masking
+void setFlags(uint16_t result)
+{
+    switch (CONTROL) {
+        // Arithmetic and Branch Instructions
+        case ADD:
+        case SUB:
+        case MUL:
+        case BRE:
+        case BRNE:
+        case BRGT:
+        case BRLT:
+            // Update all flags
+            FLAGS &= ~(FLAG_ZF | FLAG_CF | FLAG_SF | FLAG_OF);
 
-    if (((unsigned char)result) == 0x00) {  
-        FLAGS |= FLAG_ZF;
-    }
-    if (result > 0x00FF) {
-        FLAGS |= FLAG_CF;
-        FLAGS |= FLAG_OF;
-    }
-    if (((unsigned char)result) & 0x80) {
-        FLAGS |= FLAG_SF;
-    }
-}
+            if (((uint8_t)result) == 0x00)      // set ZF if result is 0
+                FLAGS |= FLAG_ZF;
 
-void setFlagZeroOnly(unsigned char value) {
-    FLAGS &= ~FLAG_ZF;
-    if (value == 0x00) {
-        FLAGS |= FLAG_ZF;
-    }
-}
+            if (result > 0x00FF) {              // set CF and OF if result is greater than 8-bits
+                FLAGS |= FLAG_CF;
+                FLAGS |= FLAG_OF;
+            }
 
-void setFlagCarryOnly(unsigned char carry) {
-    FLAGS &= ~FLAG_CF;
-    if (carry) {
-        FLAGS |= FLAG_CF;
+            if (((uint8_t)result) & 0x80)       // set SF when 8th bit is set
+                FLAGS |= FLAG_SF;
+            break;
+
+        // Logical Instructions
+        case AND:
+        case OR:
+        case NOT:
+        case XOR:
+            // Update only ZF
+            FLAGS &= ~FLAG_ZF;
+            if (((uint8_t)result) == 0x00)      // Set ZF 
+            {
+                FLAGS |= FLAG_ZF;
+            }
+            break;
+
+        // Shift Instructions
+        case SHL:
+        case SHR:
+            // Update only CF
+            FLAGS &= ~FLAG_CF;
+
+            if (result)                         // Set CF depending on the passed value from ALU()
+                FLAGS |= FLAG_CF;
+                
+            break;
     }
 }
 
 // Helper function for printing out the opcode name
-const char *instructionName(uint8_t opcode) {
+const uint8_t *instructionName(uint8_t opcode) {
     switch (opcode) {
         case WM:   return "WM";
         case RM:   return "RM";
