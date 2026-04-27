@@ -192,258 +192,298 @@ void initMemory(void) {
     // Load 0xF0 to BUS
     loadWord(0x03A, (WB   << 11) | 0x0F0);  // MBR = 0xF0
     loadWord(0x03C, (BRGT << 11) | 0x040);  // ACC = (0xD6) - (0xF0) = 0xE6     ZF=0, CF=1, OF=1, SF=1
-    
+    // Branch not taken
+
     // If subtraction from previous compare < 0xF0, then goto 0x44
     loadWord(0x03E, (BRLT << 11) | 0x044);  // ACC = (0xE6) - (0xF0) = 0xF6     ZF=0, CF=1, OF=1, SF=1
-    
+    // Branch taken
+
     // Unreachable instructions
     loadWord(0x040, (WB   << 11) | 0x000);
     loadWord(0x042, (WACC << 11));
 
     
-    // For loop
+    // Loop construct
+    // for(int i = 3, i > 0, i--);
+    // Load initial value (3) to ACC
+    loadWord(0x044, (WB   << 11) | 0x003);  // MBR = 0x03
+    loadWord(0x046, (WACC << 11));          // ACC = 0x03
 
-    loadWord(0x044, (WB   << 11) | 0x003);
-    loadWord(0x046, (WACC << 11));
-    loadWord(0x048, (WB   << 11) | 0x000);
-    loadWord(0x04A, (BRE  << 11) | 0x052);
-    loadWord(0x04C, (WB   << 11) | 0x001);
-    loadWord(0x04E, (SUB  << 11));
+    // Load stopping condition (0) to BUS
+    loadWord(0x048, (WB   << 11) | 0x000);  // MBR = 0x00
+
+    // If ACC == 0, then exit loop
+    loadWord(0x04A, (BRE  << 11) | 0x052);  // 1. ACC = (0x03) - (0x00) = 0x03  ZF=0, CF=0, OF=0, SF=0
+                                            // 2. ACC = (0x02) - (0x00) = 0x02  ZF=0, CF=0, OF=0, SF=0
+                                            // 3. ACC = (0x01) - (0x00) = 0x01  ZF=0, CF=0, OF=0, SF=0
+                                            // 4. ACC = (0x00) - (0x00) = 0x00  ZF=1, CF=0, OF=0, SF=0
+                                            // Then take branch
+    
+    // Subtract 1 from ACC
+    // Load 1 to BUS
+    loadWord(0x04C, (WB   << 11) | 0x001);  // MBR = 0x01
+
+    // Perform the subtraction
+    loadWord(0x04E, (SUB  << 11));          // 1. ACC = (0x03) - (0x01) = 0x02  ZF=0, CF=0, OF=0, SF=0
+                                            // 2. ACC = (0x02) - (0x01) = 0x01  ZF=0, CF=0, OF=0, SF=0
+                                            // 3. ACC = (0x01) - (0x01) = 0x00  ZF=1, CF=0, OF=0, SF=0
+
+    // Loop back to loading of stopping condition (0x048)
     loadWord(0x050, (BR   << 11) | 0x048);
+
+
+    // End of program
     loadWord(0x052, (EOP  << 11));
 }
 
 int CU(void) {
-    uint16_t PC = 0;
-    uint16_t IR = 0;
-    uint16_t MAR = 0;
-    uint8_t MBR = 0;
-    uint16_t IOAR = 0;
-    uint8_t IOBR = 0;
+    // Internal registers
+    uint16_t PC = 0;        // Program Counter
+    uint16_t IR = 0;        // Instruction Register
+    uint16_t MAR = 0;       // Memory Address Register
+    uint8_t MBR = 0;        // Memory Buffer Register
+    uint16_t IOAR = 0;      // I/O Address Register
+    uint8_t IOBR = 0;       // I/O Buffer Register
 
-    uint8_t INCREMENT = 0;
-    uint8_t FETCH = 0;
-    uint8_t IO = 0;
-    uint8_t MEMORY = 0;
+    // Internal control lines
+    uint8_t INCREMENT = 0;  // Increment Control line
+    uint8_t FETCH = 0;      // Fetch Control line
+    uint8_t IO = 0;         // IO Control line
+    uint8_t MEMORY = 0;     // Memory Control line
 
-    uint8_t run = 1;
-    uint8_t isError = 0;
+    // Program execution state
+    uint8_t run = 1;        // Running state
+    uint8_t isError = 0;    // Error state
 
     do {
         #if PRINTCYCLE == 1
-                uint16_t PC_before = PC;
+            uint16_t PC_before = PC;
         #endif
 
-        IOM = 1; RW = 0; OE = 1;
-        FETCH = 1; IO = 0; MEMORY = 0;
+        // Fetch Operation
+        OE = 1; IOM = 1; RW = 0;        // Memory read
+        FETCH = 1; IO = 0; MEMORY = 0;  // Select IR 
 
-        ADDR = PC;
-        MainMemory();
+        // Fetch upper byte
+        ADDR = PC; MainMemory();        // Fetch upper byte
         if (FETCH == 1) {
-            IR = ((uint16_t)BUS) << 8;
+            IR = ((uint16_t)BUS) << 8;  // Load upper instruction byte
+            
             INCREMENT = 1;
-            if (INCREMENT == 1) PC++;
+            if (INCREMENT == 1) PC++;   // Point to lower byte
             ADDR = PC;
             INCREMENT = 0;
         }
 
-        MainMemory();
+        // Fetch lower byte
+        MainMemory();                   // Fetch lower byte
         if (FETCH == 1) {
-            IR |= BUS;
+            IR |= BUS;                  // Load lower instruction byte
+            
             INCREMENT = 1;
-            if (INCREMENT == 1) PC++;
+            if (INCREMENT == 1) PC++;   // Point to next instruction
             INCREMENT = 0;
         }
-        FETCH = 0;
 
-        {
-            uint8_t opcode = (IR >> 11) & 0x1F;
-            uint16_t operand = IR & 0x07FF;
+        
+        // Decode and Execute
+        FETCH = 0;                              // Deassert FETCH
+        uint8_t opcode = (IR >> 11) & 0x1F;     // Extract opcode (5 bits)
+        uint16_t operand = IR & 0x07FF;         // Extract operand (11 bits)
+        CONTROL = opcode;                       // Current instruction to be executed
 
-            switch (opcode) {
-                case WM:
-                    MAR = operand;
-                    CONTROL = opcode;
-                    IOM = 1; RW = 1; OE = 1;
-                    FETCH = 0; MEMORY = 1; IO = 0;
-                    if (MEMORY == 1) ADDR = MAR;
-                    if (MEMORY == 1) BUS = MBR;
-                    MainMemory();
-                    break;
-
-                case RM:
-                    MAR = operand;
-                    CONTROL = opcode;
-                    IOM = 1; RW = 0; OE = 1;
-                    FETCH = 0; MEMORY = 1; IO = 0;
-                    if (MEMORY == 1) ADDR = MAR;
-                    MainMemory();
-                    if (MEMORY == 1) MBR = BUS;
-                    break;
-
-                case BR:
-                    MAR = operand;
-                    CONTROL = opcode;
-                    IOM = 0; RW = 0; OE = 0;
-                    FETCH = 0; MEMORY = 0; IO = 0;
-                    PC = MAR;
-                    break;
-
-                case RIO:
-                    IOAR = operand;
-                    CONTROL = opcode;
-                    IOM = 0; RW = 0; OE = 1;
-                    FETCH = 0; MEMORY = 0; IO = 1;
-                    if (IO == 1) ADDR = IOAR;
-                    IOMemory();
-                    if (IO == 1) IOBR = BUS;
-                    break;
-
-                case WIO:
-                    IOAR = operand;
-                    CONTROL = opcode;
-                    IOM = 0; RW = 1; OE = 1;
-                    FETCH = 0; MEMORY = 0; IO = 1;
-                    if (IO == 1) ADDR = IOAR;
-                    if (IO == 1) BUS = IOBR;
-                    IOMemory();
-                    break;
-
-                case WB:
-                    MBR = (uint8_t)operand;
-                    CONTROL = opcode;
-                    IOM = 0; RW = 0; OE = 0;
-                    FETCH = 0; MEMORY = 0; IO = 0;
-                    break;
-
-                case WIB:
-                    IOBR = (uint8_t)operand;
-                    CONTROL = opcode;
-                    IOM = 0; RW = 0; OE = 0;
-                    FETCH = 0; MEMORY = 0; IO = 0;
-                    break;
-
-                case WACC:
-                    CONTROL = opcode;
-                    IOM = 0; RW = 0; OE = 0;
-                    FETCH = 0; MEMORY = 1; IO = 0;
-                    if (MEMORY == 1) BUS = MBR;
-                    if (ALU() != 0) {
-                        isError = 1;
-                        run = 0;
-                    }
-                    break;
-
-                case RACC:
-                    CONTROL = opcode;
-                    IOM = 0; RW = 0; OE = 0;
-                    FETCH = 0; MEMORY = 1; IO = 0;
-                    if (ALU() != 0) {
-                        isError = 1;
-                        run = 0;
-                    } else if (MEMORY == 1) {
-                        MBR = BUS;
-                    }
-                    break;
-
-                case SWAP: {
-                    uint8_t temp = MBR;
-                    CONTROL = opcode;
-                    IOM = 0; RW = 0; OE = 0;
-                    FETCH = 0; MEMORY = 0; IO = 0;
-                    MBR = IOBR;
-                    IOBR = temp;
-                    break;
-                }
-
-                case ADD:
-                case SUB:
-                case MUL:
-                case AND:
-                case OR:
-                case XOR:
-                    CONTROL = opcode;
-                    IOM = 0; RW = 0; OE = 0;
-                    FETCH = 0; MEMORY = 1; IO = 0;
-                    if (MEMORY == 1) BUS = MBR;
-                    if (ALU() != 0) {
-                        isError = 1;
-                        run = 0;
-                    }
-                    break;
-
-                case NOT:
-                case SHL:
-                case SHR:
-                    CONTROL = opcode;
-                    IOM = 0; RW = 0; OE = 0;
-                    FETCH = 0; MEMORY = 0; IO = 0;
-                    if (ALU() != 0) {
-                        isError = 1;
-                        run = 0;
-                    }
-                    break;
-
-                case BRE:
-                case BRNE:
-                case BRGT:
-                case BRLT:
-                    CONTROL = opcode;
-                    IOM = 0; RW = 0; OE = 0;
-                    FETCH = 0; MEMORY = 1; IO = 0;
-                    if (MEMORY == 1) BUS = MBR;
-                    if (ALU() != 0) {
-                        isError = 1;
-                        run = 0;
-                        break;
-                    }
-
-                    if ((opcode == BRE  && (FLAGS & FLAG_ZF)) ||
-                        (opcode == BRNE && !(FLAGS & FLAG_ZF)) ||
-                        (opcode == BRGT && !(FLAGS & FLAG_SF) && !(FLAGS & FLAG_ZF)) ||
-                        (opcode == BRLT &&  (FLAGS & FLAG_SF))) {
-                        PC = operand;
-                    }
-                    break;
-
-                case EOP:
-                    CONTROL = opcode;
-                    IOM = 0; RW = 0; OE = 0;
-                    FETCH = 0; MEMORY = 0; IO = 0;
+        switch (opcode) {
+            // Arithmetic and Logical Instructions
+            // Two-operand operations
+            case ADD:
+            case SUB:
+            case MUL:
+            case AND:
+            case OR:
+            case XOR:
+                IOM = 0; RW = 0; OE = 0;        // No external memory access
+                FETCH = 0; MEMORY = 1; IO = 0;  // Select MBR/MAR
+                
+                if (MEMORY == 1) BUS = MBR;     // Transfer to external data BUS
+                if (ALU() != 0) {               // Relevant ALU() call dictated by CONTROL
+                    isError = 1;
                     run = 0;
-                    break;
+                }
+                break;
+            
+            // Single-operand operations
+            case NOT:
+            case SHL:
+            case SHR:
+                IOM = 0; RW = 0; OE = 0;        // No external memory access
+                FETCH = 0; MEMORY = 0; IO = 0;  // No internal registers to be selected
+                
+                if (ALU() != 0) {               // Relevant ALU() call dictated by CONTROL
+                    isError = 1;
+                    run = 0;
+                }
+                break;
 
-                default:
-                    CONTROL = opcode;
-                    IOM = 0; RW = 0; OE = 0;
-                    FETCH = 0; MEMORY = 0; IO = 0;
+
+            // Data Movement Instructions
+            case WM:    // Write data in MBR to memory at address pointed to by MAR
+                OE = 1; IOM = 1; RW = 1;        // Memory write
+                FETCH = 0; MEMORY = 1; IO = 0;  // Select MBR/MAR
+
+                MAR = operand;                  // MAR <- operand
+                if (MEMORY == 1) ADDR = MAR;    // Set ADDR bus to MAR/operand
+                if (MEMORY == 1) BUS = MBR;     // Set data bus to MBR
+                MainMemory();                   // dataMemory[MAR] = MBR
+                break;
+
+            case RM:    // Read data from memory with the specified address, stores data to MBR
+                OE = 1; IOM = 1; RW = 0;        // Memory read
+                FETCH = 0; MEMORY = 1; IO = 0;  // Select MBR/MAR
+
+                MAR = operand;                  // MAR <- operand
+                if (MEMORY == 1) ADDR = MAR;    // Set ADDR bus to MAR/operand
+                MainMemory();                   // Read result is at BUS
+                if (MEMORY == 1) MBR = BUS;     // MBR = dataMemory[MAR]
+                break;
+
+            case RIO:   // Read data from IO memory with the specified address, stores data to IOBR
+                OE = 1; IOM = 0; RW = 0;        // IO read
+                FETCH = 0; MEMORY = 0; IO = 1;  // Select IOBR/IOAR 
+
+                IOAR = operand;                 // IOAR <- operand
+                if (IO == 1) ADDR = IOAR;       // Set ADDR bus to IOAR/operand
+                IOMemory();                     // Read result is at BUS
+                if (IO == 1) IOBR = BUS;        // IOBR = IOBuffer[IOAR]
+                break;
+
+            case WIO:   // Write data in IOBR to memory at address pointed to by IOAR
+                OE = 1; IOM = 0; RW = 1;        // IO write
+                FETCH = 0; MEMORY = 0; IO = 1;  // Select IOBR/IOAR
+
+                IOAR = operand;                 // IOAR <- operand
+                if (IO == 1) ADDR = IOAR;       // Set ADDR bus to IOAR/operand
+                if (IO == 1) BUS = IOBR;        // Set data bus to IOBR
+                IOMemory();                     // IOBuffer[IOAR] = IOBR
+                break;
+
+            case WB:    // Write literal value to MBR
+                OE = 0; IOM = 0; RW = 0;        // No external memory access
+                FETCH = 0; MEMORY = 0; IO = 0;  // Internal to CU only
+
+                MBR = (uint8_t)operand;         // MBR <- operand
+                break;
+
+            case WIB:   // Write literal value to IOBR
+                OE = 0; IOM = 0; RW = 0;        // No external memory access
+                FETCH = 0; MEMORY = 0; IO = 0;  // Internal to CU only
+
+                IOBR = (uint8_t)operand;        // IOBR <- operand
+                break;
+
+            case WACC:  // Write data on BUS to ACC
+                OE = 0; IOM = 0; RW = 0;        // No external memory access
+                FETCH = 0; MEMORY = 1; IO = 0;  // Select MBR/MAR
+
+                if (MEMORY == 1) BUS = MBR;     // Transfer to external data BUS
+                if (ALU() != 0) {               // ACC <- BUS
+                    isError = 1;
+                    run = 0;
+                }
+                break;
+
+            case RACC:  // Read ACC to bus
+                OE = 0; IOM = 0; RW = 0;        // No external memory access
+                FETCH = 0; MEMORY = 1; IO = 0;  // Select MBR/MAR
+                
+                if (ALU() != 0) {               // BUS <- ACC
+                    isError = 1;
+                    run = 0;
+                }
+                if (MEMORY == 1) MBR = BUS;     // Transfer to internal MBR
+                break;
+
+            case SWAP:  // Swap data of MBR and IOBR
+                OE = 0; IOM = 0; RW = 0;        // No external memory access
+                FETCH = 0; MEMORY = 0; IO = 0;  // Internal to CU only
+                
+                uint8_t temp = MBR;             // Perform swap
+                MBR = IOBR;                     
+                IOBR = temp;
+                break;
+
+
+            // Program Control Instructions
+            // Non-conditional branch
+            case BR:    // Branch to specified address
+                OE = 0; IOM = 0; RW = 0;        // No external memory access
+                FETCH = 0; MEMORY = 0; IO = 0;  // Internal to CU only
+
+                MAR = operand;                  // MAR <- operand
+                PC = MAR;                       // Perform jump
+                break;
+
+            // Conditional branches
+            case BRE:   // Compare ACC and BUS, if equal branch to address specified
+            case BRNE:  // Compare ACC and BUS, if not equal branch to address specified
+            case BRGT:  // Compare ACC and BUS, if ACC > BUS, branch to address specified
+            case BRLT:  // Compare ACC and BUS, if ACC < BUS, branch to address specified
+                OE = 0; IOM = 0; RW = 0;        // No external memory access
+                FETCH = 0; MEMORY = 1; IO = 0;  // Select MBR/MAR
+
+                if (MEMORY == 1) BUS = MBR;     // Transfer to external data BUS (usually from previous instruction)
+                if (ALU() != 0) {               // Relevant ALU() call dictated by CONTROL
                     isError = 1;
                     run = 0;
                     break;
-            }
+                }
 
-        #if PRINTCYCLE == 1
-                printf("====================================\n");
-                printf("%-5s: 0x%02X | %-6s: 0x%03X\n\n", "BUS", BUS, "ADDR", ADDR);
-                printf("%-20s: 0x%03X\n", "PC", PC_before);
-                printf("%-20s: 0x%04X\n", "IR", IR);
-                printf("%-20s: %s (0x%02X)\n", "Instruction", instructionName(CONTROL), CONTROL);
-                printf("%-20s: 0x%03X\n\n", "Operand", operand);
-                printf("%-20s: 0x%03X\n", "MAR", MAR);
-                printf("%-20s: 0x%02X\n", "MBR", MBR);
-                printf("%-20s: 0x%02X\n\n", "Memory[MAR]", dataMemory[MAR]);
-                printf("%-20s: 0x%03X\n", "IOAR", IOAR);
-                printf("%-20s: 0x%02X\n", "IOBR", IOBR);
-                printf("%-20s: 0x%02X\n\n", "IOBuffer[IOAR]", IOBuffer[IOAR]);
-                printf("%-20s: 0x%02X\n", "FLAGS", FLAGS);
-                printf("%-20s: ZF=%u CF=%u SF=%u OF=%u\n\n",
-                        "Flag Bits",
-                        (FLAGS & FLAG_ZF) ? 1 : 0,
-                        (FLAGS & FLAG_CF) ? 1 : 0,
-                        (FLAGS & FLAG_SF) ? 1 : 0,
-                        (FLAGS & FLAG_OF) ? 1 : 0);
-        #endif
+                // If condition is met
+                if ((opcode == BRE  && (FLAGS & FLAG_ZF)) ||                        // ACC - BUS = 0, so ZF == 1
+                    (opcode == BRNE && !(FLAGS & FLAG_ZF)) ||                       // ACC - BUS != 0, so ZF == 0
+                    (opcode == BRGT && !(FLAGS & FLAG_SF) && !(FLAGS & FLAG_ZF)) || // ACC - BUS > 0, so SF == 0 and ZF == 0
+                    (opcode == BRLT &&  (FLAGS & FLAG_SF))) {                       // ACC - BUS < 0, sp SF == 1
+                    PC = operand;               // Then perform jump
+                }
+                break;
+
+            case EOP:   // End of program, no more instructions, CU will halt
+                IOM = 0; RW = 0; OE = 0;        // Deassert control signals
+                FETCH = 0; MEMORY = 0; IO = 0;
+
+                run = 0;                        // Signal CU to stop
+                break;
+
+            default:    // Invalid opcode
+                IOM = 0; RW = 0; OE = 0;        // Deassert control signals
+                FETCH = 0; MEMORY = 0; IO = 0;
+
+                isError = 1;                    // Signal an error
+                run = 0;                        // Halt CU
+                break;
         }
+
+    #if PRINTCYCLE == 1
+            printf("====================================\n");
+            printf("%-5s: 0x%02X | %-6s: 0x%03X\n\n", "BUS", BUS, "ADDR", ADDR);
+            printf("%-20s: 0x%03X\n", "PC", PC_before);
+            printf("%-20s: 0x%04X\n", "IR", IR);
+            printf("%-20s: %s (0x%02X)\n", "Instruction", instructionName(CONTROL), CONTROL);
+            printf("%-20s: 0x%03X\n\n", "Operand", operand);
+            printf("%-20s: 0x%03X\n", "MAR", MAR);
+            printf("%-20s: 0x%02X\n", "MBR", MBR);
+            printf("%-20s: 0x%02X\n\n", "Memory[MAR]", dataMemory[MAR]);
+            printf("%-20s: 0x%03X\n", "IOAR", IOAR);
+            printf("%-20s: 0x%02X\n", "IOBR", IOBR);
+            printf("%-20s: 0x%02X\n\n", "IOBuffer[IOAR]", IOBuffer[IOAR]);
+            printf("%-20s: 0x%02X\n", "FLAGS", FLAGS);
+            printf("%-20s: ZF=%u CF=%u SF=%u OF=%u\n\n",
+                    "Flag Bits",
+                    (FLAGS & FLAG_ZF) ? 1 : 0,
+                    (FLAGS & FLAG_CF) ? 1 : 0,
+                    (FLAGS & FLAG_SF) ? 1 : 0,
+                    (FLAGS & FLAG_OF) ? 1 : 0);
+    #endif
+        
     } while (run);
 
     return isError ? 0 : 1;
@@ -452,20 +492,14 @@ int CU(void) {
 int ALU(void) {
     static int ACC = 0;
     unsigned int temp_ACC = (unsigned char)ACC;
-#if PRINTCYCLE == 1
-    unsigned char acc_before = (unsigned char)ACC;
-    unsigned char bus_before = BUS;
-#endif
+
+    #if PRINTCYCLE == 1
+        unsigned char acc_before = (unsigned char)ACC;
+        unsigned char bus_before = BUS;
+    #endif
 
     switch (CONTROL) {
-        case WACC:
-            ACC = BUS;
-            break;
-
-        case RACC:
-            BUS = (unsigned char)ACC;
-            break;
-
+        // Arithmetic and Logical Instructions
         case ADD:
             temp_ACC = (unsigned char)ACC + BUS;
             ACC = (unsigned char)temp_ACC;
@@ -478,7 +512,7 @@ int ALU(void) {
             setFlagsArithmetic(temp_ACC);
             break;
 
-        case MUL:
+        case MUL:   // Omitted Booth's algorithm for compaction
             temp_ACC = (unsigned char)ACC * BUS;
             ACC = (unsigned char)temp_ACC;
             setFlagsArithmetic(temp_ACC);
@@ -514,32 +548,45 @@ int ALU(void) {
             ACC = ((unsigned char)ACC >> 1) & 0xFF;
             break;
 
+
+        // Data Movement Instructions
+        case WACC:
+            ACC = BUS;
+            break;
+
+        case RACC:
+            BUS = (unsigned char)ACC;
+            break;
+
+
+        // Program Control Instructions
         case BRE:
         case BRNE:
         case BRGT:
         case BRLT:
-            temp_ACC = (unsigned char)ACC + twosComp(BUS);
+            temp_ACC = (unsigned char)ACC + twosComp(BUS);  // Perform subtraction
             ACC = (unsigned char)temp_ACC;
             setFlagsArithmetic(temp_ACC);
             break;
 
-        default:
+        // Invalid opcode
+        default:    
             return -1;
     }
 
-#if PRINTCYCLE == 1
-    printf("ALU Trace             : %-4s | ACC(before)=0x%02X | BUS=0x%02X | ACC(after)=0x%02X | FLAGS=0x%02X\n",
-           instructionName(CONTROL), acc_before, bus_before, (unsigned char)ACC, FLAGS);
-#endif
+    #if PRINTCYCLE == 1
+        printf("ALU Trace            : %-4s | ACC(before)=0x%02X | BUS=0x%02X | ACC(after)=0x%02X | FLAGS=0x%02X\n",
+            instructionName(CONTROL), acc_before, bus_before, (unsigned char)ACC, FLAGS);
+    #endif
 
     return 0;
 }
 
 void MainMemory(void) {
     if (IOM == 1) {
-        if (RW == 0 && OE == 1) {
+        if (RW == 0 && OE == 1) {           // Memory read
             BUS = dataMemory[ADDR];
-        } else if (RW == 1 && OE == 1) {
+        } else if (RW == 1 && OE == 1) {    // Meomory write
             dataMemory[ADDR] = BUS;
         }
     }
@@ -547,14 +594,15 @@ void MainMemory(void) {
 
 void IOMemory(void) {
     if (IOM == 0) {
-        if (RW == 0 && OE == 1) {
+        if (RW == 0 && OE == 1) {           // IO read
             BUS = IOBuffer[ADDR];
-        } else if (RW == 1 && OE == 1) {
+        } else if (RW == 1 && OE == 1) {    // IO write
             IOBuffer[ADDR] = BUS;
         }
     }
 }
 
+// Helper function to 2 bytes of the same instruction at once
 void loadWord(uint16_t addr, uint16_t word) {
     if (addr + 1 < MEMSIZE) {
         dataMemory[addr] = (word >> 8) & 0xFF;
@@ -567,9 +615,9 @@ unsigned char twosComp(unsigned char data) {
 }
 
 void setFlagsArithmetic(unsigned int result) {
-    FLAGS &= ~(FLAG_ZF | FLAG_CF | FLAG_SF | FLAG_OF);
+    FLAGS &= ~(FLAG_ZF | FLAG_CF | FLAG_SF | FLAG_OF);  // Bit masking
 
-    if (((unsigned char)result) == 0x00) {
+    if (((unsigned char)result) == 0x00) {  
         FLAGS |= FLAG_ZF;
     }
     if (result > 0x00FF) {
@@ -595,6 +643,7 @@ void setFlagCarryOnly(unsigned char carry) {
     }
 }
 
+// Helper function for printing out the opcode name
 const char *instructionName(uint8_t opcode) {
     switch (opcode) {
         case WM:   return "WM";
