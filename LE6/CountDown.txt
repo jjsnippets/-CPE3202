@@ -1,0 +1,47 @@
+; CPE 3202 COMPUTER ORGANIZATION AND ARCHITECTURE
+; Group 2      MW 7:30AM - 10:30AM LB CEAC2 TC
+; Estose, Jude Vicris; Sarcol, Joshua; Silmaro, Jame Paul Jr.      BS CpE - 3  2026/05/11
+; Laboratory Exercise #6: Input/Output
+
+; Port configuration and I/O testing
+000     WIB     0x0CA      ; Load test data (11001010 or 0xCA)
+002     WIO     0x001      ; Output to latch 0x01
+
+004     RIO     0x01F      ; Read reversed test data from buffer 0x1F (01010011 or 0x53)
+006     SWAP               ; Save to memory address 0x406
+008     WM      0x406      
+00A     RM      0x406      ; Test read address 0x406
+
+; Countdown from 9 to 0
+; Equivalent c-pseudocode
+;    i = 9;
+;    while (i != 0) { 
+;        i--;              // '0' is displayed first before loop breaks
+;        OUT = i;          // "OUT" to 7-segment display
+;    };
+; CPU internal state comments are in the accompanying code submission 
+
+; Initialization
+00C	WB      0x009      ; Load counter to 9
+00E	WACC	
+010	SWAP
+012	WIO                ; Display 9 to 7-segment
+
+; Loop condition check
+014	WB      0x000      ; Load 0 (the condition check)
+016	BRE     0x024      ; Break out from loop when counter is 0
+
+; Decrement counter
+018	WB      0x001      ; Load 1
+01A	BRE     0x018      ; Subtract 1 from counter
+
+; Display updated counter value
+01C	RACC
+01E	SWAP
+020	WIO                ; Display updated counter to 7-segment
+
+; Jump back to loop
+022	BR      0x014
+
+; End of program
+024	EOP
